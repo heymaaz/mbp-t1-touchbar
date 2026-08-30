@@ -148,6 +148,11 @@ binary. The durable fix is upstreaming — see below.
 
 ## Upstreaming
 
+**[docs/upstreaming.md](docs/upstreaming.md) is the step-by-step guide** —
+`git send-email` setup, finding maintainers with `get_maintainer.pl`, ready
+commit messages, `checkpatch`, and v2 etiquette. It also tracks what has and
+has not been submitted.
+
 Everything here reduces to four one-line additions, all in `kernel/patches/`
 and `userspace/`:
 
@@ -172,7 +177,7 @@ userspace/       the tiny-dfr digitizer-name patch
 system/          bring-up script, systemd units, seat rules generator, pacman hook
 scripts/         install / enable / uninstall / doctor
 scripts/diagnostics/  usbmon capture, end-to-end input check
-docs/            protocol notes and the digitizer report descriptor
+docs/            protocol notes, report descriptor, upstreaming guide
 ```
 
 ## Credits
