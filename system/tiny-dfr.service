@@ -1,0 +1,13 @@
+[Unit]
+Description=Tiny Dynamic Function Row (Touch Bar renderer)
+Documentation=https://github.com/mbp-t1-touchbar/mbp-t1-touchbar
+Requires=touchbar-t1.service
+After=touchbar-t1.service
+
+[Service]
+ExecStart=/usr/local/bin/tiny-dfr
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+# Local overrides, merged over /usr/share/tiny-dfr/config.toml.
+# Only the keys set here differ from the shipped defaults.
+
+# Media keys (brightness, volume, playback) are the default layer;
+# F1-F12 appear while the physical fn key is held. This is macOS behaviour.
+MediaLayerDefault = true

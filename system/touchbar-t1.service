@@ -1,0 +1,12 @@
+[Unit]
+Description=Apple T1 Touch Bar bring-up (USB config 2, drivers, activation)
+Documentation=https://github.com/mbp-t1-touchbar/mbp-t1-touchbar
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/touchbar-t1-setup
+RemainAfterExit=yes
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

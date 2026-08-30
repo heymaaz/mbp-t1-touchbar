@@ -1,0 +1,57 @@
+Subject: [PATCH] HID: multitouch: add device ID for the T1 Apple Touch Bar
+
+The Touch Bar digitizer on T1 MacBook Pros (MacBookPro13,x and 14,x, the
+2016 and 2017 models) is the same device class as the T2's, exposed on the
+iBridge's 05ac:8600 rather than 05ac:8302.
+
+Its report descriptor, read from a MacBookPro13,2 in USB configuration 2, is
+a Digitizers/TouchPad application collection containing ten Finger
+collections of
+
+    TransducerIndex : 4 bits
+    Touch           : 1 bit
+    InRange         : 1 bit
+    (padding)       : 2 bits
+    X               : 16 bits, logical max 32767
+    Y               : 8 bits,  logical max 127
+
+followed by a vendor 0xff11 collection with a 64-bit timestamp and a 32-bit
+report counter, for a 52-byte input report with no report ID and no
+HID_DG_CONTACTMAX field.
+
+That is exactly what MT_CLS_APPLE_TOUCHBAR already describes, so only the
+device ID is needed. Verified on a MacBookPro13,2 running 7.1.9: with this
+entry the digitizer binds to hid-multitouch, gains INPUT_PROP_DIRECT and the
+ABS_MT_* axes, and tiny-dfr drives the Touch Bar.
+
+NOTE FOR REBASING: this is written against the tree that carries
+MT_CLS_APPLE_TOUCHBAR (Linux 6.15 and later). Regenerate with git format-patch
+against a real tree before sending upstream; the context below is
+reconstructed, not taken from a checkout.
+
+If USB_DEVICE_ID_APPLE_IBRIDGE is not yet present in drivers/hid/hid-ids.h,
+the first hunk adds it.
+
+---
+ drivers/hid/hid-ids.h       | 1 +
+ drivers/hid/hid-multitouch.c | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+--- a/drivers/hid/hid-ids.h
++++ b/drivers/hid/hid-ids.h
+@@
+ #define USB_DEVICE_ID_APPLE_TOUCHBAR_BACKLIGHT 0x8102
+ #define USB_DEVICE_ID_APPLE_TOUCHBAR_DISPLAY 0x8302
++#define USB_DEVICE_ID_APPLE_IBRIDGE	0x8600
+
+--- a/drivers/hid/hid-multitouch.c
++++ b/drivers/hid/hid-multitouch.c
+@@ static const struct hid_device_id mt_devices[] = {
+ 	{ .driver_data = MT_CLS_APPLE_TOUCHBAR,
+ 		HID_USB_DEVICE(USB_VENDOR_ID_APPLE,
+ 			       USB_DEVICE_ID_APPLE_TOUCHBAR_DISPLAY) },
++
++	/* Apple Touch Bar on T1 Macs (MacBookPro13,x and 14,x) */
++	{ .driver_data = MT_CLS_APPLE_TOUCHBAR,
++		HID_USB_DEVICE(USB_VENDOR_ID_APPLE,
++			       USB_DEVICE_ID_APPLE_IBRIDGE) },

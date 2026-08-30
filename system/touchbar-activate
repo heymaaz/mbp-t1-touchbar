@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""Apple T1 Touch Bar activation.
+
+Replays the control sequence macOS issues on wake. Without it the DFR panel
+stays dark even though appletbdrm delivers frames and the device acknowledges
+them.
+
+Derived from a USB capture of macOS 12.7.6 on a MacBookPro13,2. The four steps
+below are frames 904, 906, 907 and 909 of that capture; the matching sleep
+sequence is SET_INTERFACE 5 -> alt 0 followed by CLEAR_FEATURE remote wakeup.
+
+Which of the four are strictly required has not been bisected.
+"""
+import fcntl, glob, os, struct, sys, time
+
+VID, PID = '05ac', '8600'
+
+
+def find_ibridge():
+    """Locate the iBridge by vendor/product - the USB path differs per machine."""
+    for path in sorted(glob.glob('/sys/bus/usb/devices/*')):
+        try:
+            with open(os.path.join(path, 'idVendor')) as f:
+                if f.read().strip() != VID:
+                    continue
+            with open(os.path.join(path, 'idProduct')) as f:
+                if f.read().strip() != PID:
+                    continue
+        except OSError:
+            continue
+        return path
+    return None
+
+
+def HIDIOCSFEATURE(length):
+    return (3 << 30) | (length << 16) | (ord('H') << 8) | 0x06
+
+
+USBDEVFS_CONTROL        = (3 << 30) | (24 << 16) | (ord('U') << 8) | 0
+USBDEVFS_SETINTERFACE   = (2 << 30) | (8 << 16)  | (ord('U') << 8) | 4
+USBDEVFS_CLAIMINTERFACE = (2 << 30) | (4 << 16)  | (ord('U') << 8) | 15
+
+
+def wait_for_device(timeout=60):
+    """Wait for the iBridge on configuration 2 with the display bound."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        dev = find_ibridge()
+        if dev:
+            try:
+                with open(os.path.join(dev, 'bConfigurationValue')) as f:
+                    cfg = f.read().strip()
+                if cfg == '2' and os.path.exists(f'{dev}:2.3/driver'):
+                    return dev
+            except OSError:
+                pass
+        time.sleep(1)
+    return None
+
+
+def hid_node(dev):
+    """The hidraw node of the 0xff12 backlight/ALS interface (interface 6)."""
+    for path in glob.glob(f'{dev}:2.6/*/hidraw/hidraw*'):
+        return '/dev/' + os.path.basename(path)
+    return None
+
+
+def main():
+    dev = wait_for_device()
+    if not dev:
+        print('touchbar-activate: iBridge display not ready', file=sys.stderr)
+        return 1
+
+    with open(os.path.join(dev, 'busnum')) as f:
+        busnum = int(f.read())
+    with open(os.path.join(dev, 'devnum')) as f:
+        devnum = int(f.read())
+    usb_fd = os.open(f'/dev/bus/usb/{busnum:03d}/{devnum:03d}', os.O_RDWR)
+
+    for iface in (4, 5):
+        try:
+            fcntl.ioctl(usb_fd, USBDEVFS_CLAIMINTERFACE, struct.pack('<I', iface))
+        except OSError as exc:
+            print(f'touchbar-activate: claim {iface}: {exc}', file=sys.stderr)
+
+    # 1. class request to interface 4 that macOS sends first
+    try:
+        fcntl.ioctl(usb_fd, USBDEVFS_CONTROL,
+                    struct.pack('<BBHHHIQ', 0x21, 0x8a, 0x0000, 0x0004, 0, 2000, 0))
+    except OSError as exc:
+        print(f'touchbar-activate: 0x8a: {exc}', file=sys.stderr)
+
+    # 2. the activation Feature report, and panel power on
+    node = hid_node(dev)
+    if node:
+        hid_fd = os.open(node, os.O_RDWR)
+        try:
+            fcntl.ioctl(hid_fd, HIDIOCSFEATURE(15),
+                        bytes([0x03, 0x02, 0xf4, 0x01] + [0] * 11))
+        except OSError as exc:
+            print(f'touchbar-activate: set_report: {exc}', file=sys.stderr)
+        # panel state: 0xff120020 aux = 1, 0xff120021 state = 1 (on)
+        try:
+            buf = bytearray([2] + [0] * 10)
+            buf[1], buf[2] = 1, 1
+            fcntl.ioctl(hid_fd, HIDIOCSFEATURE(11), bytes(buf))
+        except OSError as exc:
+            print(f'touchbar-activate: panel on: {exc}', file=sys.stderr)
+    else:
+        print(f'touchbar-activate: no hidraw on {os.path.basename(dev)}:2.6',
+              file=sys.stderr)
+
+    # 3. remote wakeup
+    try:
+        fcntl.ioctl(usb_fd, USBDEVFS_CONTROL,
+                    struct.pack('<BBHHHIQ', 0x00, 0x03, 0x0001, 0x0000, 0, 2000, 0))
+    except OSError as exc:
+        print(f'touchbar-activate: remote wakeup: {exc}', file=sys.stderr)
+
+    # 4. wake the streaming interface
+    try:
+        fcntl.ioctl(usb_fd, USBDEVFS_SETINTERFACE, struct.pack('<II', 5, 1))
+    except OSError as exc:
+        print(f'touchbar-activate: set_interface: {exc}', file=sys.stderr)
+
+    # 5. hand the 0xff12 HID interface to the backlight driver, which claims it
+    #    without hidraw - so this must come after the reports above. Generic
+    #    drivers win the initial probe because the T1 reports a sensor
+    #    application collection (kernel >= 6.3), so rebind explicitly.
+    bind_backlight(dev)
+
+    print('touchbar-activate: done')
+    return 0
+
+
+def bind_backlight(dev):
+    if not os.path.isdir('/sys/bus/hid/drivers/hid-appletb-bl'):
+        return
+    for path in glob.glob(f'{dev}:2.6/[0-9A-F]*:[0-9A-F]*'):
+        hid_id = os.path.basename(path)
+        current = None
+        if os.path.exists(path + '/driver'):
+            current = os.path.basename(os.path.realpath(path + '/driver'))
+        if current == 'hid-appletb-bl':
+            return
+        try:
+            if current:
+                with open(f'/sys/bus/hid/drivers/{current}/unbind', 'w') as f:
+                    f.write(hid_id)
+                time.sleep(0.5)
+            with open('/sys/bus/hid/drivers/hid-appletb-bl/bind', 'w') as f:
+                f.write(hid_id)
+            print(f'touchbar-activate: {hid_id} -> hid-appletb-bl')
+        except OSError as exc:
+            print(f'touchbar-activate: backlight bind {hid_id}: {exc}',
+                  file=sys.stderr)
+        return
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -1,0 +1,10 @@
+target/
+*.pcapng
+*.ko
+*.o
+*.mod
+*.mod.c
+*.mod.o
+Module.symvers
+modules.order
+.tmp_versions/

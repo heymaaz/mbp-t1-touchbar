@@ -1,0 +1,17 @@
+# /etc/udev/rules.d/71-seat.rules shadows a systemd-owned file by name.
+# When systemd ships a new version, the local copy silently keeps winning and
+# pins whatever systemd shipped at install time. Regenerate it from the new
+# stock file after every systemd upgrade.
+#
+# Install to /etc/pacman.d/hooks/
+
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = systemd
+
+[Action]
+Description = Regenerating Touch Bar 71-seat.rules override from new systemd...
+When = PostTransaction
+Exec = /usr/local/bin/touchbar-t1-gen-seat-rules
+Depends = python

@@ -1,0 +1,30 @@
+--- hid-appletb-bl.stock.c	2026-08-30 12:51:15.123587043 +0200
++++ ../hid-appletb-bl.c	2026-08-30 12:51:14.656912130 +0200
+@@ -12,7 +12,10 @@
+ #include <linux/backlight.h>
+ #include <linux/device.h>
+ 
+-#include "hid-ids.h"
++/* hid-ids.h is not exported for out-of-tree builds */
++#define USB_VENDOR_ID_APPLE			0x05ac
++#define USB_DEVICE_ID_APPLE_TOUCHBAR_BACKLIGHT	0x8102
++#define USB_DEVICE_ID_APPLE_IBRIDGE		0x8600
+ 
+ #define APPLETB_BL_ON			1
+ #define APPLETB_BL_DIM			3
+@@ -186,6 +189,15 @@
+ static const struct hid_device_id appletb_bl_hid_ids[] = {
+ 	/* MacBook Pro's 2018, 2019, with T2 chip: iBridge DFR Brightness */
+ 	{ HID_USB_DEVICE(USB_VENDOR_ID_APPLE, USB_DEVICE_ID_APPLE_TOUCHBAR_BACKLIGHT) },
++	/*
++	 * MacBook Pro's 2016, 2017, with T1 chip: iBridge DFR Brightness.
++	 * Match the sensor-hub group explicitly: the iBridge exposes the
++	 * brightness usages and the Touch Bar's multitouch digitizer under the
++	 * same vendor/product, and matching both would claim the digitizer,
++	 * fail to probe it, and leave it without any driver.
++	 */
++	{ HID_DEVICE(BUS_USB, HID_GROUP_SENSOR_HUB,
++		     USB_VENDOR_ID_APPLE, USB_DEVICE_ID_APPLE_IBRIDGE) },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(hid, appletb_bl_hid_ids);
