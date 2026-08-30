@@ -106,6 +106,11 @@ Anytime after a kernel, systemd or distro update:
 bash scripts/doctor.sh
 ```
 
+A healthy install reports **22 ok, 0 warnings, 0 failures**. `doctor.sh` exits
+non-zero if anything fails, so it works in a cron job or an update hook. It
+checks both lockout canaries (§ below) as well as the bindings, so treat any
+failure as a reason not to reboot until it is understood.
+
 To remove everything: `sudo bash scripts/uninstall.sh`.
 
 ## Read this before you enable anything at boot
