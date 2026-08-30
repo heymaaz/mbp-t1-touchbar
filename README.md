@@ -77,7 +77,7 @@ MobileGestalt, not input.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/mbp-t1-touchbar
+git clone https://github.com/Seborider/mbp-t1-touchbar
 cd mbp-t1-touchbar
 sudo bash scripts/install.sh
 ```

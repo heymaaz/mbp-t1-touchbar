@@ -1,6 +1,6 @@
 [Unit]
 Description=Tiny Dynamic Function Row (Touch Bar renderer)
-Documentation=https://github.com/mbp-t1-touchbar/mbp-t1-touchbar
+Documentation=https://github.com/Seborider/mbp-t1-touchbar
 Requires=touchbar-t1.service
 After=touchbar-t1.service
 
