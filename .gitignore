@@ -8,3 +8,4 @@ target/
 Module.symvers
 modules.order
 .tmp_versions/
+__pycache__/

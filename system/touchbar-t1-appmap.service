@@ -1,0 +1,16 @@
+[Unit]
+Description=Hyprland-aware Touch Bar layouts
+Documentation=https://github.com/Seborider/mbp-t1-touchbar
+# Only useful once the renderer is up, but not required by it: this service
+# writes a config file, and tiny-dfr reloads it on its own inotify watch.
+# It waits for a Hyprland session on its own, so it needs no graphical ordering.
+After=tiny-dfr.service
+Wants=tiny-dfr.service
+
+[Service]
+ExecStart=/usr/local/bin/touchbar-t1-appmap
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -86,6 +86,10 @@ mkdir -p /etc/tiny-dfr
     && echo "  /etc/tiny-dfr/config.toml exists - left alone" \
     || { install -m644 "$REPO"/system/tiny-dfr-config.toml /etc/tiny-dfr/config.toml
          echo "  /etc/tiny-dfr/config.toml (media layer default)"; }
+[ -e /etc/tiny-dfr/layouts.toml ] \
+    && echo "  /etc/tiny-dfr/layouts.toml exists - left alone" \
+    || { install -m644 "$REPO"/system/tiny-dfr-layouts.toml /etc/tiny-dfr/layouts.toml
+         echo "  /etc/tiny-dfr/layouts.toml (per-app layout rules)"; }
 echo uinput > /etc/modules-load.d/uinput.conf
 
 say "5. seat rules + pacman hook"
@@ -98,8 +102,10 @@ echo "  pacman hook installed - seat rules regenerate after systemd upgrades"
 say "6. system scripts + units (NOT enabled)"
 install -m755 "$REPO"/system/touchbar-t1-setup   /usr/local/bin/touchbar-t1-setup
 install -m755 "$REPO"/system/touchbar-activate   /usr/local/bin/touchbar-activate
+install -m755 "$REPO"/system/touchbar-t1-appmap  /usr/local/bin/touchbar-t1-appmap
 install -m644 "$REPO"/system/touchbar-t1.service /etc/systemd/system/
 install -m644 "$REPO"/system/tiny-dfr.service    /etc/systemd/system/
+install -m644 "$REPO"/system/touchbar-t1-appmap.service /etc/systemd/system/
 systemctl daemon-reload
 # The Tschalar apple-ibridge stack forces USB configuration 1, which has no
 # display interface. It cannot coexist with this one.
@@ -135,6 +141,14 @@ cat <<EOF
   Only once that passes, enable at boot:
 
       sudo bash $REPO/scripts/enable.sh
+
+  Per-app Touch Bar layouts driven by the focused Hyprland window are
+  installed but NOT running, because starting them rewrites
+  /etc/tiny-dfr/config.toml. To opt in:
+
+      sudo systemctl enable --now touchbar-t1-appmap.service
+
+  Rules live in /etc/tiny-dfr/layouts.toml and are picked up live.
 
   To undo everything:
 

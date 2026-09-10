@@ -106,7 +106,8 @@ Anytime after a kernel, systemd or distro update:
 bash scripts/doctor.sh
 ```
 
-A healthy install reports **22 ok, 0 warnings, 0 failures**. `doctor.sh` exits
+A healthy install reports **22 ok, 0 warnings, 0 failures**, or **27 ok** with
+the optional app-aware layouts below installed and running. `doctor.sh` exits
 non-zero if anything fails, so it works in a cron job or an update hook. It
 checks both lockout canaries (§ below) as well as the bindings, so treat any
 failure as a reason not to reboot until it is understood.
@@ -132,6 +133,57 @@ does not work here.
 
 `scripts/doctor.sh` checks both of these as explicit canaries, and
 `scripts/enable.sh` refuses to enable if either is wrong.
+
+## App-aware layouts (Hyprland)
+
+Optional. The Touch Bar can show a different set of keys depending on which
+window has focus.
+
+```bash
+sudo systemctl enable --now touchbar-t1-appmap.service
+```
+
+Rules live in `/etc/tiny-dfr/layouts.toml` and are picked up live — no restart:
+
+```toml
+[[rule]]
+layout = "browser"
+class = "^(zen|firefox|chromium)$"
+
+[layout.browser]
+MediaLayerKeys = [
+    { Text = "<", Action = ["LeftAlt", "Left"] },
+    { Text = ">", Action = ["LeftAlt", "Right"] },
+    # ...
+]
+```
+
+**No patch to tiny-dfr is needed for this.** tiny-dfr already keeps an inotify
+watch on `/etc/tiny-dfr/config.toml` and reloads both layers in place when the
+file changes. `touchbar-t1-appmap` watches Hyprland's `socket2` event stream,
+maps the focused window's class and title to a layout, and rewrites that file
+atomically. That is the whole integration.
+
+Three things worth knowing:
+
+- **The default is always preserved.** If no rule matches, only the `[base]`
+  section is written, which is the stock media-key layout. Unrecognised windows
+  behave exactly as they did before.
+- **You only override what you change.** tiny-dfr merges per key against its
+  shipped defaults, so a layout that sets `MediaLayerKeys` keeps stock F1–F12 on
+  the fn layer. You never restate a layer you are not touching.
+- **It is a system service, not a `--user` one.** tiny-dfr's config path is a
+  hardcoded `/etc/tiny-dfr/config.toml`; it reads no XDG path. Running as root
+  is what lets it write there *and* read the Hyprland sockets under
+  `/run/user/*/hypr/`, without loosening permissions on `/etc` or maintaining a
+  fifth tiny-dfr patch.
+
+The first time it starts it moves any hand-written `config.toml` aside to
+`config.toml.pre-appmap`, since it owns that file from then on. Find the class
+and title to match with `hyprctl activewindow -j`. `doctor.sh` validates the
+rules and proves every layout still renders to TOML tiny-dfr can read — an
+invalid key name makes tiny-dfr silently discard the whole config and fall back
+to its defaults, so run it after editing.
 
 ## Surviving updates
 
@@ -169,7 +221,7 @@ conditional on the product ID rather than unconditional.
 kernel/          patched appletbdrm + hid-appletb-bl, DKMS config
 kernel/patches/  unified diffs vs stock, including the hid-multitouch one-liner
 userspace/       the tiny-dfr digitizer-name patch
-system/          bring-up script, systemd units, seat rules generator, pacman hook
+system/          bring-up, units, seat rules, pacman hook, Hyprland layout watcher
 scripts/         install / enable / uninstall / doctor
 scripts/diagnostics/  usbmon capture, end-to-end input check
 docs/            protocol notes and the digitizer report descriptor
