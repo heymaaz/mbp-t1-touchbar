@@ -135,7 +135,29 @@
  		goto end_fb_cpu_access;
  	}
  
-@@ -816,6 +851,8 @@
+@@ -761,6 +796,21 @@
+ 		drm_warn(drm, "buffer sharing not supported"); /* not an error */
+ 	}
+ 
++	/*
++	 * The T1 can come up with its bulk pipes halted, or with a stale
++	 * transfer still queued from a previous configuration, which makes the
++	 * first GET_INFORMATION fail and the probe abort with -EBADMSG. Clearing
++	 * both pipes here complements the response drain in
++	 * appletbdrm_read_response(): the drain recovers from a desynchronised
++	 * pipe, this prevents one.
++	 */
++	if (appletbdrm_is_t1(adev)) {
++		struct usb_device *udev = adev_to_udev(adev);
++
++		usb_clear_halt(udev, usb_sndbulkpipe(udev, adev->out_ep));
++		usb_clear_halt(udev, usb_rcvbulkpipe(udev, adev->in_ep));
++	}
++
+ 	ret = appletbdrm_get_information(adev);
+ 	if (ret) {
+ 		drm_err(drm, "Failed to get display information\n");
+@@ -816,6 +866,8 @@
  
  static const struct usb_device_id appletbdrm_usb_id_table[] = {
  	{ USB_DEVICE_INTERFACE_CLASS(0x05ac, 0x8302, USB_CLASS_AUDIO_VIDEO) },
