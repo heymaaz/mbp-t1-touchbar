@@ -43,6 +43,8 @@
 #define APPLETBDRM_MSG_SIGNAL_READINESS	cpu_to_le32(0x52454459) /* REDY */
 
 #define APPLETBDRM_BULK_MSG_TIMEOUT	1000
+#define APPLETBDRM_T1_PRODUCT_ID	0x8600
+#define APPLETBDRM_RESPONSE_ATTEMPTS	8
 
 #define drm_to_adev(_drm)		container_of(_drm, struct appletbdrm_device, drm)
 #define adev_to_udev(adev)		interface_to_usbdev(to_usb_interface((adev)->drm.dev))
@@ -129,8 +131,6 @@ struct appletbdrm_device {
 	unsigned int width;
 	unsigned int height;
 
-	bool fb_response_logged;
-
 	struct drm_device drm;
 	struct drm_display_mode mode;
 	struct drm_connector connector;
@@ -138,6 +138,12 @@ struct appletbdrm_device {
 	struct drm_crtc crtc;
 	struct drm_encoder encoder;
 };
+
+static bool appletbdrm_is_t1(struct appletbdrm_device *adev)
+{
+	return le16_to_cpu(adev_to_udev(adev)->descriptor.idProduct) ==
+	       APPLETBDRM_T1_PRODUCT_ID;
+}
 
 struct appletbdrm_plane_state {
 	struct drm_shadow_plane_state base;
@@ -184,14 +190,7 @@ static int appletbdrm_read_response(struct appletbdrm_device *adev,
 	bool readiness_signal_received = false;
 	int ret, actual_size, attempt;
 
-	/*
-	 * The T1 prefixes replies with a short header transfer, and can leave
-	 * stale data in the bulk pipe across a reset, so a transfer of an
-	 * unexpected length is drained rather than treated as a failure.
-	 * Without this the very first GET_INFORMATION after boot fails and the
-	 * device never probes.
-	 */
-	for (attempt = 0; attempt < 8; attempt++) {
+	for (attempt = 0; attempt < APPLETBDRM_RESPONSE_ATTEMPTS; attempt++) {
 		ret = usb_bulk_msg(udev, usb_rcvbulkpipe(udev, adev->in_ep),
 				   response, size, &actual_size,
 				   APPLETBDRM_BULK_MSG_TIMEOUT);
@@ -200,7 +199,16 @@ static int appletbdrm_read_response(struct appletbdrm_device *adev,
 			return ret;
 		}
 
-		if ((size_t)actual_size != size) {
+		/*
+		 * The T1 prefixes replies with a short header transfer, and
+		 * can leave stale data in the bulk pipe across a reset, so a
+		 * transfer of an unexpected length is drained rather than
+		 * treated as a failure. Without this the very first
+		 * GET_INFORMATION after boot fails and the device never
+		 * probes. The T2 sends no such preamble, so it keeps the
+		 * original size check below.
+		 */
+		if (appletbdrm_is_t1(adev) && (size_t)actual_size != size) {
 			drm_dbg(drm, "Draining %d byte transfer (expected %zu)\n",
 				actual_size, size);
 			continue;
@@ -219,6 +227,12 @@ static int appletbdrm_read_response(struct appletbdrm_device *adev,
 
 			readiness_signal_received = true;
 			continue;
+		}
+
+		if ((size_t)actual_size != size) {
+			drm_err(drm, "Actual size (%d) doesn't match expected size (%zu)\n",
+				actual_size, size);
+			return -EBADMSG;
 		}
 
 		if (response->msg != expected_response) {
@@ -384,76 +398,6 @@ static int appletbdrm_primary_plane_helper_atomic_check(struct drm_plane *plane,
 	return 0;
 }
 
-/*
- * The T1 precedes each framebuffer acknowledgement with a short 16-byte
- * preamble that the T2 does not send. Reading it as the acknowledgement leaves
- * the bulk pipe one transfer out of step, so every subsequent response carries
- * the previous request's timestamp. Skip any transfer shorter than a full
- * response until the real acknowledgement arrives.
- */
-static int appletbdrm_read_fb_response(struct appletbdrm_device *adev,
-				       struct appletbdrm_fb_request_response *response,
-				       __le64 expected_timestamp)
-{
-	struct usb_device *udev = adev_to_udev(adev);
-	struct drm_device *drm = &adev->drm;
-	bool readiness_signal_received = false;
-	int ret, actual_size, i;
-
-	for (i = 0; i < 8; i++) {
-		memset(response, 0, sizeof(*response));
-
-		ret = usb_bulk_msg(udev, usb_rcvbulkpipe(udev, adev->in_ep),
-				   response, sizeof(*response), &actual_size,
-				   APPLETBDRM_BULK_MSG_TIMEOUT);
-		if (ret) {
-			drm_err(drm, "Failed to read response (%d)\n", ret);
-			return ret;
-		}
-
-		if (!adev->fb_response_logged)
-			drm_info(drm, "framebuffer ack: %d bytes: %*ph\n",
-				 actual_size, min(actual_size, 40), (u8 *)response);
-
-		/* short preamble: the real acknowledgement follows */
-		if (actual_size < (int)sizeof(*response))
-			continue;
-
-		if (response->header.msg == APPLETBDRM_MSG_SIGNAL_READINESS) {
-			if (readiness_signal_received) {
-				drm_err(drm, "Encountered unexpected readiness signal\n");
-				return -EINTR;
-			}
-			readiness_signal_received = true;
-			continue;
-		}
-
-		if (response->header.msg != APPLETBDRM_MSG_UPDATE_COMPLETE) {
-			drm_err(drm, "Unexpected response from device (found %p4cl)\n",
-				&response->header.msg);
-			return -EIO;
-		}
-
-		/*
-		 * The T1 acknowledges one frame behind, so the echoed
-		 * timestamp belongs to the previous request. Report the
-		 * mismatch rather than failing the update.
-		 */
-		if (response->timestamp != expected_timestamp)
-			drm_dbg(drm, "Pipelined ack: response %llu, request %llu\n",
-				le64_to_cpu(response->timestamp),
-				le64_to_cpu(expected_timestamp));
-
-		adev->fb_response_logged = true;
-
-		return 0;
-	}
-
-	drm_err(drm, "No framebuffer acknowledgement after %d transfers\n", i);
-
-	return -EIO;
-}
-
 static int appletbdrm_flush_damage(struct appletbdrm_device *adev,
 				   struct drm_plane_state *old_state,
 				   struct drm_plane_state *state)
@@ -535,9 +479,22 @@ static int appletbdrm_flush_damage(struct appletbdrm_device *adev,
 	if (ret)
 		goto end_fb_cpu_access;
 
-	ret = appletbdrm_read_fb_response(adev, response, footer->timestamp);
+	ret = appletbdrm_read_response(adev, &response->header, sizeof(*response),
+				       APPLETBDRM_MSG_UPDATE_COMPLETE);
 	if (ret)
 		goto end_fb_cpu_access;
+
+	/*
+	 * The T1 acknowledges one frame behind, so the echoed timestamp belongs
+	 * to the previous request. The T2 echoes the current one, and a
+	 * mismatch there is still a real error.
+	 */
+	if (!appletbdrm_is_t1(adev) && response->timestamp != footer->timestamp) {
+		drm_err(drm, "Response timestamp (%llu) doesn't match request timestamp (%llu)\n",
+			le64_to_cpu(response->timestamp), timestamp);
+		ret = -EBADMSG;
+		goto end_fb_cpu_access;
+	}
 
 end_fb_cpu_access:
 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);

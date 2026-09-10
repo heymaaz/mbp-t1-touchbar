@@ -208,12 +208,18 @@ and `userspace/`:
 - `hid-appletb-bl`: group-scoped `05ac:8600`
 - `tiny-dfr`: accept `"Apple Inc. iBridge Touchpad"`
 
-The `appletbdrm` T1 dialect fixes are **not** one-liners and need review before
-anyone sends them upstream: the T1 prefixes each bulk reply with a short
-16-byte preamble the T2 does not send, and acknowledges frames one behind. The
-patch drains short transfers and downgrades the timestamp mismatch to a debug
-message. Both change behaviour for T2 devices too, so they should probably be
-conditional on the product ID rather than unconditional.
+The `appletbdrm` T1 dialect fixes are **not** one-liners: the T1 prefixes each
+bulk reply with a short 16-byte preamble the T2 does not send, and acknowledges
+frames one behind. Both deviations are now gated on `appletbdrm_is_t1()`, a
+product-ID check, so a T2 takes the stock code path with its original error
+codes and messages untouched. That was the last thing standing between this
+patch and an upstream posting.
+
+While gating the timestamp check, note that stock `appletbdrm` logs a mismatch
+and then falls through to `return ret` with `ret` still `0`, reporting the
+failed update as a success. The patch sets `-EBADMSG` there. That fix applies
+to T2 devices as well and is worth splitting into its own commit before
+sending the series upstream.
 
 ## Layout
 
