@@ -230,8 +230,24 @@ userspace/       the tiny-dfr digitizer-name patch
 system/          bring-up, units, seat rules, pacman hook, Hyprland layout watcher
 scripts/         install / enable / uninstall / doctor
 scripts/diagnostics/  usbmon capture, end-to-end input check
-docs/            protocol notes and the digitizer report descriptor
+docs/            protocol notes, the digitizer report descriptor, Touch ID status
 ```
+
+## Touch ID
+
+Not implemented here, and it will not be. The T1 fingerprint sensor sits behind
+the Secure Enclave on interface 7 and the private CDC-NCM link, which this repo
+deliberately treats as out of scope — `docs/protocol.md` §6 files interface 7 as
+a dead end for the display work, and that remains correct.
+
+It *is* reachable on Linux, via [t1bridge](https://github.com/standardagents/t1bridge),
+and it needs this specific Mac's `EFI/APPLE/EMBEDDEDOS/FDRData`, which cannot be
+regenerated or borrowed from another machine. **Back that file up before any
+partitioning or reinstall.**
+
+See [docs/touchid.md](docs/touchid.md) for how the sensor is actually reached,
+the four ways a naive t1bridge install collides with this stack, and a hybrid
+that keeps this Touch Bar while adding t1bridge's Touch ID.
 
 ## Credits
 
